@@ -107,7 +107,7 @@
         onclick="switchView('gakko')">学校別</button>
     </div>
   </div>
-  <small>生成日時: 2026/08/13 18:20</small>
+  <small>生成日時: 2026/08/13 18:26</small>
 </div>
 
 <!-- 科目別ビュー -->
@@ -469,11 +469,37 @@ function buildSchoolTable(schools) {
     return r1 + r2 + r3;
   }).join('');
 
-  return `<div class="s-table-wrap">
+  const banner = buildCumBanner(schools,
+    (s, m) => (s.actual || {})[m] || 0,
+    (s, m) => (s.budget || {})[m] || 0,
+    fmtYen);
+  return banner + `<div class="s-table-wrap">
     <table class="s-table">
       <thead>${thead}</thead>
       <tbody>${tbody}</tbody>
     </table>
+  </div>`;
+}
+
+// ---- 学校別: 累積サマリーバナー共通 ----
+function buildCumBanner(schools, getActual, getBudget, fmtFn) {
+  const lastIdx = SCH_MONTHS.reduce(
+    (max, m, i) => schools.some(s => (getActual(s, m) || 0) !== 0) ? i : max, -1);
+  if (lastIdx < 0) return '';
+  const months = SCH_MONTHS.slice(0, lastIdx + 1);
+  const first = months[0], last = months[months.length - 1];
+  const period = first === last ? first : `${first}〜${last}`;
+  const sumA = schools.reduce((t, s) => t + months.reduce((ms, m) => ms + (getActual(s, m) || 0), 0), 0);
+  const sumB = schools.reduce((t, s) => t + months.reduce((ms, m) => ms + (getBudget(s, m) || 0), 0), 0);
+  const diff = sumA - sumB;
+  const dCls = diff > 0 ? 'neg' : diff < 0 ? 'pos' : '';
+  const dSign = diff >= 0 ? '+' : '';
+  return `<div class="d-flex align-items-center flex-wrap gap-3 mb-2 px-3 py-2 rounded"
+    style="background:#eff6ff;border-left:3px solid #2563eb;font-size:13px;">
+    <span class="cum-period-badge">${period} 累積</span>
+    <span>予算 <strong>${fmtFn(sumB)}</strong></span>
+    <span>実績 <strong>${fmtFn(sumA)}</strong></span>
+    <span class="${dCls}">差異 <strong>${dSign}${fmtFn(diff)}</strong></span>
   </div>`;
 }
 
@@ -520,7 +546,29 @@ function buildGrossProfitTable(schools) {
     return r1 + r2;
   }).join('');
 
-  return `<div class="s-table-wrap">
+  // 粗利管理用サマリー: 計画を下回る校数
+  const lastIdx = SCH_MONTHS.reduce(
+    (max, m, i) => schools.some(s => (s.actual_rate[m] || 0) !== 0) ? i : max, -1);
+  let gpBanner = '';
+  if (lastIdx >= 0) {
+    const months = SCH_MONTHS.slice(0, lastIdx + 1);
+    const first = months[0], last = months[months.length - 1];
+    const period = first === last ? first : `${first}〜${last}`;
+    const active = schools.filter(s => months.some(m => (s.actual_rate[m] || 0) !== 0));
+    const under = active.filter(s => {
+      const avgA = months.reduce((t, m) => t + (s.actual_rate[m] || 0), 0) / months.length;
+      const avgB = months.reduce((t, m) => t + (s.budget_rate[m] || 0), 0) / months.length;
+      return avgA < avgB;
+    }).length;
+    gpBanner = `<div class="d-flex align-items-center flex-wrap gap-3 mb-2 px-3 py-2 rounded"
+      style="background:#eff6ff;border-left:3px solid #2563eb;font-size:13px;">
+      <span class="cum-period-badge">${period} 累積</span>
+      <span>対象 <strong>${active.length}校</strong></span>
+      <span class="pos">計画以上 <strong>${active.length - under}校</strong></span>
+      <span class="${under > 0 ? 'neg' : ''}">計画未達 <strong>${under}校</strong></span>
+    </div>`;
+  }
+  return gpBanner + `<div class="s-table-wrap">
     <table class="s-table">
       <thead>${thead}</thead>
       <tbody>${tbody}</tbody>
@@ -571,7 +619,11 @@ function buildOvertimeTable(schools) {
     return r1 + r2 + r3;
   }).join('');
 
-  return `<div class="s-table-wrap">
+  const banner = buildCumBanner(schools,
+    (s, m) => (s.actual || {})[m] || 0,
+    (s, m) => (s.budget || {})[m] || 0,
+    fmtYen);
+  return banner + `<div class="s-table-wrap">
     <table class="s-table">
       <thead>${thead}</thead>
       <tbody>${tbody}</tbody>
@@ -626,7 +678,11 @@ function buildDispatchTable(schools) {
     return r1 + r2 + r3;
   }).join('');
 
-  return `<div class="s-table-wrap">
+  const banner = buildCumBanner(schools,
+    (s, m) => (s.actual || {})[m] || 0,
+    (s, m) => (s.budget || {})[m] || 0,
+    v => v.toFixed(1) + 'h');
+  return banner + `<div class="s-table-wrap">
     <table class="s-table">
       <thead>${thead}</thead>
       <tbody>${tbody}</tbody>

@@ -13,7 +13,8 @@
   .view-btn { font-size:12px; padding:3px 14px; }
   .view-btn.active { background:#fff !important; color:#1a3a5c !important; font-weight:700; }
   /* TOP ダッシュボード */
-  .top-period-btn.active { background:#1a3a5c !important; border-color:#1a3a5c !important; color:#fff !important; }
+  .top-period-btn { background:#fff; border:1px solid #1a3a5c; color:#1a3a5c; font-size:12px; padding:3px 14px; border-radius:4px; transition:background .15s,color .15s; }
+  .top-period-btn.active { background:#1a3a5c !important; border-color:#1a3a5c !important; color:#fff !important; font-weight:700; }
   .top-kpi-row { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
   .top-card { flex:1; min-width:180px; background:#fff; border:1px solid #e2e8f0; border-radius:10px;
     padding:14px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
@@ -170,15 +171,15 @@
         onclick="switchView('gakko')">学校別</button>
     </div>
   </div>
-  <small>生成日時: 2026/08/17 20:03</small>
+  <small>生成日時: 2026/08/17 20:10</small>
 </div>
 
 <!-- TOPビュー -->
 <div id="view-top" class="container-fluid py-3">
   <div class="d-flex gap-2 mb-3">
-    <button class="btn btn-sm btn-primary top-period-btn active" id="top-btn-month"
+    <button class="btn btn-sm top-period-btn active" id="top-btn-month"
       onclick="switchTopPeriod('month')">当月（前月）</button>
-    <button class="btn btn-sm btn-outline-primary top-period-btn" id="top-btn-cum"
+    <button class="btn btn-sm top-period-btn" id="top-btn-cum"
       onclick="switchTopPeriod('cum')">累計（4月〜前月）</button>
   </div>
   <div id="topDashContent"><p class="text-muted text-center py-5">読み込み中...</p></div>
@@ -1026,6 +1027,33 @@ function getTopSummary(months) {
   return s;
 }
 
+// 販管費・学校TOP3 用のリージョン別集計
+const _TOP_DEPT_REGION = {'首都圏': '関東', '関西': '関西'};
+const _LARGE_LABELS = new Set(['売上高','仕入高','売上利益','販売費及び一般管理費計','営業利益','経常利益','売上利益率','営業利益率']);
+
+function getSgByRegion(months) {
+  // 返値: { '関東': {acct: {label,budget,actual,diff}, ...}, '関西': {...} }
+  const regions = {};
+  Object.entries(DATA).forEach(([dept, deptMonths]) => {
+    const region = _TOP_DEPT_REGION[dept];
+    if (!region) return;
+    if (!regions[region]) regions[region] = {};
+    const s = regions[region];
+    months.forEach(m => {
+      (deptMonths[m] || []).forEach(r => {
+        if (_LARGE_LABELS.has(r.label || r.acct) || r.level === 'ratio' || r.level === 'large') return;
+        if (!s[r.acct]) s[r.acct] = {acct: r.acct, label: r.label, budget: 0, actual: 0};
+        s[r.acct].budget += r.budget || 0;
+        s[r.acct].actual += r.actual || 0;
+      });
+    });
+  });
+  Object.values(regions).forEach(s =>
+    Object.values(s).forEach(r => { r.diff = r.actual - r.budget; })
+  );
+  return regions;
+}
+
 function topDonut(canvasId, actual, budget, color) {
   if (topCharts[canvasId]) { topCharts[canvasId].destroy(); delete topCharts[canvasId]; }
   const ctx = document.getElementById(canvasId);
@@ -1086,29 +1114,26 @@ function buildTopView(period) {
   const salesRate  = sales.budget  > 0 ? sales.actual  / sales.budget  : null;
   const cogsRate   = cogs.budget   > 0 ? cogs.actual   / cogs.budget   : null;
 
-  // 販管費 差異の大きい科目 TOP3（medium/small のみ）
-  const sgTop3 = Object.values(sm)
-    .filter(r => r.level !== 'large' && r.level !== 'ratio')
-    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
-    .slice(0, 3);
-
-  // 学校別売上差異 TOP3（差異が最も小さい＝未達が大きい）
-  const allSchools = [];
-  Object.values(SCHOOL_DATA).forEach(region => {
-    region.forEach(s => {
-      if (s._merged) {
-        const a = period === 'month' ? (s.actual[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
-        const b = period === 'month' ? (s.budget[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
-        allSchools.push({name: s.name, actual: a, budget: b, diff: a - b});
-      } else {
-        const a = period === 'month' ? (s.actual[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
-        const b = period === 'month' ? (s.budget[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
-        allSchools.push({name: s.name, actual: a, budget: b, diff: a - b});
-      }
-    });
+  // 販管費 差異TOP3（関東/関西別）
+  const sgByRegion = getSgByRegion(months);
+  const sgTop3ByRegion = {};
+  Object.entries(sgByRegion).forEach(([region, items]) => {
+    sgTop3ByRegion[region] = Object.values(items)
+      .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+      .slice(0, 3);
   });
-  allSchools.sort((a, b) => a.diff - b.diff);
-  const schTop3 = allSchools.slice(0, 3);
+
+  // 学校別売上差異 TOP3（関東/関西別）
+  const schTop3ByRegion = {};
+  Object.entries(SCHOOL_DATA).forEach(([region, schools]) => {
+    const arr = schools.map(s => {
+      const a = period === 'month' ? (s.actual[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
+      const b = period === 'month' ? (s.budget[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
+      return {name: s.name, actual: a, budget: b, diff: a - b};
+    });
+    arr.sort((a, b) => a.diff - b.diff);
+    schTop3ByRegion[region] = arr.slice(0, 3);
+  });
 
   // --- HTML構築 ---
   const salesCard = `<div class="top-card">
@@ -1154,31 +1179,41 @@ function buildTopView(period) {
   </div>`;
 
   const sgDiffCls = sg.diff <= 0 ? 'pos' : 'neg';
+  const mkTop3Rows = (list, fmtFn) => list.length
+    ? list.map((r,i) => `<div class="top-top3-item">
+        <span class="rank">${i+1}</span>
+        <span class="name">${r.label||r.name||r.acct}</span>
+        <span class="val ${r.diff<=0?'pos':'neg'}">${r.diff>=0?'+':''}¥${fmtFn(Math.abs(r.diff))}</span>
+      </div>`).join('')
+    : '<div style="font-size:11px;color:#9ca3af;padding:4px 0">データなし</div>';
+
+  const mkRegionTop3 = (byRegion, extraFn) => ['関東','関西'].map(region => {
+    const list = byRegion[region] || [];
+    const extra = extraFn ? extraFn(list) : '';
+    return `<div style="flex:1;min-width:0">
+      <div style="font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px">${region}</div>
+      <div class="top-top3">${mkTop3Rows(list, fmtY)}</div>${extra}
+    </div>`;
+  }).join('');
+
   const sgCard = `<div class="top-card top-wide">
-    <h6>販売管理費（${label}）</h6>
+    <h6>販売管理費 差異TOP3（${label}）</h6>
     <div class="d-flex gap-4 mb-2" style="font-size:12px">
-      <div><span class="lbl" style="font-size:10px;color:#6b7280">予算差異</span><br>
+      <div><span class="lbl" style="font-size:10px;color:#6b7280">予算差異（全社）</span><br>
         <strong class="${sgDiffCls}">${sg.diff>=0?'+':''}¥${fmtY(Math.abs(sg.diff))}</strong></div>
       <div><span class="lbl" style="font-size:10px;color:#6b7280">予算比</span><br>
         <strong class="${sg.budget>0&&sg.actual/sg.budget<=1?'pos':'neg'}">${sg.budget>0?(sg.actual/sg.budget*100).toFixed(1):'-'}%</strong></div>
       <div><span class="lbl" style="font-size:10px;color:#6b7280">予算</span><br>¥${fmtY(sg.budget)}</div>
       <div><span class="lbl" style="font-size:10px;color:#6b7280">実績</span><br>¥${fmtY(sg.actual)}</div>
     </div>
-    <div style="font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px">差異の大きい科目 TOP3</div>
-    <div class="top-top3">${sgTop3.map((r,i) => `<div class="top-top3-item">
-      <span class="rank">${i+1}</span>
-      <span class="name">${r.label||r.acct}</span>
-      <span class="val ${r.diff<=0?'pos':'neg'}">${r.diff>=0?'+':''}¥${fmtY(Math.abs(r.diff))}</span>
-    </div>`).join('')}</div>
+    <div style="display:flex;gap:16px">${mkRegionTop3(sgTop3ByRegion, null)}</div>
   </div>`;
 
   const schCard = `<div class="top-card top-wide">
     <h6>売上予実差が大きい学校 TOP3（${label}）</h6>
-    <div class="top-top3">${schTop3.map((s,i) => `<div class="top-top3-item">
-      <span class="rank">${i+1}</span>
-      <span class="name">${s.name}</span>
-      <span class="val neg">${s.diff>=0?'+':''}¥${fmtY(Math.abs(s.diff))} (実績 ¥${fmtY(s.actual)})</span>
-    </div>`).join('')}</div>
+    <div style="display:flex;gap:16px">${mkRegionTop3(schTop3ByRegion,
+      list => list.length ? `<div style="font-size:10px;color:#6b7280;margin-top:4px">( 実績 ¥${fmtY(list[0]?.actual||0)} )</div>` : ''
+    )}</div>
   </div>`;
 
   document.getElementById('topDashContent').innerHTML =

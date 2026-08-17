@@ -170,7 +170,7 @@
         onclick="switchView('gakko')">学校別</button>
     </div>
   </div>
-  <small>生成日時: 2026/08/17 19:52</small>
+  <small>生成日時: 2026/08/17 20:03</small>
 </div>
 
 <!-- TOPビュー -->
@@ -1049,10 +1049,18 @@ function switchTopPeriod(period) {
 }
 
 function buildTopView(period) {
-  const prevIdx   = SCH_MONTHS.indexOf(PREV_MONTH);
-  const cumMonths = prevIdx >= 0 ? SCH_MONTHS.slice(0, prevIdx + 1) : SCH_MONTHS;
-  const months    = period === 'month' ? [PREV_MONTH] : cumMonths;
-  const label     = period === 'month' ? PREV_MONTH : `4月〜${PREV_MONTH}`;
+  // DATA に実際に存在する直近月を使う（PREV_MONTH は Python 側の計算値なのでズレる場合がある）
+  const latestMonth = MONTHS.length > 0 ? MONTHS[MONTHS.length - 1] : PREV_MONTH;
+  const prevIdx     = SCH_MONTHS.indexOf(latestMonth);
+  const cumMonths   = prevIdx >= 0 ? SCH_MONTHS.slice(0, prevIdx + 1) : SCH_MONTHS;
+  const months      = period === 'month' ? [latestMonth] : cumMonths;
+  const label       = period === 'month' ? latestMonth : `4月〜${latestMonth}`;
+
+  // ボタンラベルを実際の月名に更新
+  const btnM = document.getElementById('top-btn-month');
+  const btnC = document.getElementById('top-btn-cum');
+  if (btnM) btnM.textContent = `当月（${latestMonth}）`;
+  if (btnC) btnC.textContent = `累計（4月〜${latestMonth}）`;
 
   const sm  = getTopSummary(months);
   const get = k => sm[k] || {budget:0, actual:0, diff:0, diff_rate:0};
@@ -1089,12 +1097,12 @@ function buildTopView(period) {
   Object.values(SCHOOL_DATA).forEach(region => {
     region.forEach(s => {
       if (s._merged) {
-        const a = period === 'month' ? (s.actual[PREV_MONTH]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
-        const b = period === 'month' ? (s.budget[PREV_MONTH]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
+        const a = period === 'month' ? (s.actual[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
+        const b = period === 'month' ? (s.budget[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
         allSchools.push({name: s.name, actual: a, budget: b, diff: a - b});
       } else {
-        const a = period === 'month' ? (s.actual[PREV_MONTH]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
-        const b = period === 'month' ? (s.budget[PREV_MONTH]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
+        const a = period === 'month' ? (s.actual[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.actual[m]||0),0);
+        const b = period === 'month' ? (s.budget[latestMonth]||0) : cumMonths.reduce((t,m)=>t+(s.budget[m]||0),0);
         allSchools.push({name: s.name, actual: a, budget: b, diff: a - b});
       }
     });

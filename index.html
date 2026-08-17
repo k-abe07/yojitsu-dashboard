@@ -105,11 +105,11 @@
   .merge-note { font-size:9px; color:#6b7280; margin-top:4px; font-style:italic; line-height:1.4; }
   /* 学校詳細ダッシュボード */
   .sd-kpi-row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
-  .sd-kpi-card { flex:1; min-width:160px; border-radius:10px; padding:14px 16px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
-  .sd-kpi-card .kpi-title { font-size:11px; font-weight:600; opacity:.75; margin-bottom:4px; }
-  .sd-kpi-card .kpi-rate { font-size:26px; font-weight:800; line-height:1.1; }
-  .sd-kpi-card .kpi-sub { font-size:11px; margin-top:4px; opacity:.8; }
-  .sd-kpi-card .kpi-icon { font-size:28px; float:right; margin-top:-4px; }
+  .sd-kpi-card { flex:1; min-width:160px; border-radius:10px; padding:12px 14px; box-shadow:0 1px 4px rgba(0,0,0,.08); text-align:center; }
+  .sd-kpi-card .kpi-title { font-size:11px; font-weight:600; opacity:.75; margin-bottom:2px; }
+  .sd-kpi-card .kpi-rate { font-size:22px; font-weight:800; line-height:1.2; }
+  .sd-kpi-card .kpi-sub { font-size:10px; margin-top:4px; opacity:.8; line-height:1.5; }
+  .sd-kpi-donut { width:80px; height:80px; margin:4px auto; }
   .sd-kpi-good  { background:#dff4ea; color:#065f46; }
   .sd-kpi-warn  { background:#fef3c7; color:#92400e; }
   .sd-kpi-bad   { background:#fee2e2; color:#991b1b; }
@@ -118,6 +118,12 @@
   .sd-chart-box { flex:1; min-width:280px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:12px 14px; }
   .sd-chart-box h6 { font-size:12px; font-weight:700; color:#1e3a5f; margin-bottom:8px; }
   .sd-no-data { color:#9ca3af; font-size:12px; text-align:center; padding:20px 0; }
+  .sd-num-table { width:100%; border-collapse:collapse; margin-top:8px; }
+  .sd-num-table th, .sd-num-table td { border:1px solid #e2e8f0; padding:3px 5px; text-align:right; white-space:nowrap; font-size:9px; }
+  .sd-num-table th:first-child, .sd-num-table td:first-child { text-align:left; font-weight:700; width:36px; }
+  .sd-nt-budget td { background:#e0f2fe; }
+  .sd-nt-actual td { background:#bae6fd; }
+  .sd-nt-remain td { background:#f3f4f6; color:#6b7280; }
   .dispatch-billing { font-size:9px; color:#6b7280; margin-top:2px; }
   .billing-jisseki { display:inline-block; background:#dc2626; color:#fff !important; font-weight:700; font-size:10px; border-radius:3px; padding:1px 6px; margin-top:2px; letter-spacing:0.05em; }
   /* ユニット・PDセパレータ行 */
@@ -136,7 +142,7 @@
         onclick="switchView('gakko')">学校別</button>
     </div>
   </div>
-  <small>生成日時: 2026/08/17 19:25</small>
+  <small>生成日時: 2026/08/17 19:38</small>
 </div>
 
 <!-- 科目別ビュー -->
@@ -971,22 +977,41 @@ function _findInRegions(dataObj, id) {
   return null;
 }
 
-function sdKpiCard(title, actual, budget, fmtFn, icon) {
+function sdKpiCard(title, actual, budget, fmtFn, canvasId) {
   const rate = budget > 0 ? actual / budget : null;
   const pct  = rate !== null ? (rate * 100).toFixed(1) + '%' : '—';
   const cls  = rate === null ? 'sd-kpi-none'
              : rate >= 1.0  ? 'sd-kpi-good'
              : rate >= 0.8  ? 'sd-kpi-warn' : 'sd-kpi-bad';
-  const em   = icon || (rate === null ? '' : rate >= 1.0 ? '😊' : rate >= 0.8 ? '😐' : '😟');
   return `<div class="sd-kpi-card ${cls}">
-    <div class="kpi-icon">${em}</div>
     <div class="kpi-title">${title}</div>
+    <div class="sd-kpi-donut"><canvas id="${canvasId}"></canvas></div>
     <div class="kpi-rate">${pct}</div>
-    <div class="kpi-sub">実績 ${fmtFn(actual)} / 予算 ${fmtFn(budget)}</div>
+    <div class="kpi-sub">実績 ${fmtFn(actual)}<br>予算 ${fmtFn(budget)}</div>
   </div>`;
 }
 
-function sdDrawChart(canvasId, labels, datasets, yFmt) {
+function sdDonut(canvasId, actual, budget, color) {
+  if (sdCharts[canvasId]) { sdCharts[canvasId].destroy(); delete sdCharts[canvasId]; }
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const rate   = budget > 0 ? actual / budget : 0;
+  const filled = Math.min(rate, 1);
+  const over   = rate > 1 ? Math.min(rate - 1, 0.5) : 0;
+  const remain = Math.max(0, 1 - filled);
+  sdCharts[canvasId] = new Chart(ctx, {
+    type: 'doughnut',
+    data: { datasets: [{ data:[filled, over, remain],
+      backgroundColor:[color, '#f59e0b', '#e5e7eb'], borderWidth:0 }] },
+    options: {
+      cutout: '68%',
+      plugins: { legend:{display:false}, tooltip:{enabled:false} },
+      animation: { duration:400 },
+    }
+  });
+}
+
+function sdDrawChart(canvasId, labels, datasets, yFmt, stacked) {
   if (sdCharts[canvasId]) { sdCharts[canvasId].destroy(); delete sdCharts[canvasId]; }
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
@@ -996,11 +1021,26 @@ function sdDrawChart(canvasId, labels, datasets, yFmt) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } } },
       scales: {
-        x: { ticks: { font: { size: 10 } } },
-        y: { ticks: { font: { size: 10 }, callback: yFmt } },
+        x: { ticks: { font: { size: 10 } }, stacked: !!stacked },
+        y: { ticks: { font: { size: 10 }, callback: yFmt }, stacked: !!stacked },
       }
     }
   });
+}
+
+function sdNumTable(data, months, fmtFn) {
+  const totB = months.reduce((t,m)=>t+(data.budget[m]||0), 0);
+  const totA = months.reduce((t,m)=>t+(data.actual[m]||0), 0);
+  const totR = Math.max(0, totB - totA);
+  return `<div style="overflow-x:auto">
+  <table class="sd-num-table">
+    <thead><tr><th></th>${months.map(m=>`<th>${m}</th>`).join('')}<th>累計</th></tr></thead>
+    <tbody>
+      <tr class="sd-nt-budget"><td>予算</td>${months.map(m=>`<td>${fmtFn(data.budget[m]||0)}</td>`).join('')}<td>${fmtFn(totB)}</td></tr>
+      <tr class="sd-nt-actual"><td>実績</td>${months.map(m=>`<td>${fmtFn(data.actual[m]||0)}</td>`).join('')}<td>${fmtFn(totA)}</td></tr>
+      <tr class="sd-nt-remain"><td>残</td>${months.map(m=>`<td>${fmtFn(Math.max(0,(data.budget[m]||0)-(data.actual[m]||0)))}</td>`).join('')}<td>${fmtFn(totR)}</td></tr>
+    </tbody>
+  </table></div>`;
 }
 
 function buildSchoolDetailView(schoolId) {
@@ -1018,71 +1058,91 @@ function buildSchoolDetailView(schoolId) {
                      : Math.round(v).toLocaleString() + '円';
   const fmtHour = v => v.toFixed(1) + 'h';
 
-  // --- KPIカード ---
-  let kpiHtml = '<div class="sd-kpi-row">';
+  // --- KPIカード (ドーナツ) ---
+  const kpiCards = [], kpiDraws = [];
   if (sales) {
-    const ma = sales.actual[PREV_MONTH] || 0, mb = sales.budget[PREV_MONTH] || 0;
-    kpiHtml += sdKpiCard(`売上達成率（${PREV_MONTH}）`, ma, mb, fmtYenM);
-    const ca = cumMonths.reduce((t,m) => t+(sales.actual[m]||0), 0);
-    const cb = cumMonths.reduce((t,m) => t+(sales.budget[m]||0), 0);
-    kpiHtml += sdKpiCard(`売上達成率（${cumLabel}）`, ca, cb, fmtYenM);
+    const ca = cumMonths.reduce((t,m)=>t+(sales.actual[m]||0), 0);
+    const cb = cumMonths.reduce((t,m)=>t+(sales.budget[m]||0), 0);
+    kpiCards.push(sdKpiCard(`売上達成率（${cumLabel}）`, ca, cb, fmtYenM, 'sd-kpi-c0'));
+    kpiDraws.push({id:'sd-kpi-c0', a:ca, b:cb, color:'#3b82f6'});
   }
   if (dispatch) {
-    const ca = cumMonths.reduce((t,m) => t+(dispatch.actual[m]||0), 0);
-    const cb = cumMonths.reduce((t,m) => t+(dispatch.budget[m]||0), 0);
-    kpiHtml += sdKpiCard(`派遣時間達成率（${cumLabel}）`, ca, cb, fmtHour, '⏱');
+    const ca = cumMonths.reduce((t,m)=>t+(dispatch.actual[m]||0), 0);
+    const cb = cumMonths.reduce((t,m)=>t+(dispatch.budget[m]||0), 0);
+    kpiCards.push(sdKpiCard(`派遣時間達成率（${cumLabel}）`, ca, cb, fmtHour, 'sd-kpi-c1'));
+    kpiDraws.push({id:'sd-kpi-c1', a:ca, b:cb, color:'#0ea5e9'});
   }
   if (overtime) {
-    const ca = cumMonths.reduce((t,m) => t+(overtime.actual[m]||0), 0);
-    const cb = cumMonths.reduce((t,m) => t+(overtime.budget[m]||0), 0);
-    kpiHtml += sdKpiCard(`指導時間外消化率（${cumLabel}）`, ca, cb, fmtYenM, '📚');
+    const ca = cumMonths.reduce((t,m)=>t+(overtime.actual[m]||0), 0);
+    const cb = cumMonths.reduce((t,m)=>t+(overtime.budget[m]||0), 0);
+    kpiCards.push(sdKpiCard(`指導時間外消化率（${cumLabel}）`, ca, cb, fmtYenM, 'sd-kpi-c2'));
+    kpiDraws.push({id:'sd-kpi-c2', a:ca, b:cb, color:'#a78bfa'});
   }
-  kpiHtml += '</div>';
+  const kpiHtml = `<div class="sd-kpi-row">${kpiCards.join('')}</div>`;
 
   // --- グラフHTML ---
-  const row1 = `<div class="sd-chart-row">
-    ${sales  ? `<div class="sd-chart-box"><h6>売上：月別実績 vs 予算</h6><div style="height:220px"><canvas id="sd-chart-sales"></canvas></div></div>` : ''}
-    ${gross  ? `<div class="sd-chart-box"><h6>粗利率：月別推移（実績 vs 見積）</h6><div style="height:220px"><canvas id="sd-chart-gross"></canvas></div></div>` : ''}
-  </div>`;
-  const row2 = `<div class="sd-chart-row">
-    ${dispatch ? `<div class="sd-chart-box"><h6>派遣時間：月別実績 vs 予算</h6><div style="height:220px"><canvas id="sd-chart-dispatch"></canvas></div></div>` : ''}
-    ${overtime ? `<div class="sd-chart-box"><h6>指導時間外：月別実績 vs 予算</h6><div style="height:220px"><canvas id="sd-chart-overtime"></canvas></div></div>` : ''}
-  </div>`;
+  const dispatchBox = dispatch ? `<div class="sd-chart-box">
+    <h6>派遣時間：月別（実績＋残時間）</h6>
+    <div style="height:180px"><canvas id="sd-chart-dispatch"></canvas></div>
+    ${sdNumTable(dispatch, cumMonths, fmtHour)}
+  </div>` : '';
+  const overtimeBox = overtime ? `<div class="sd-chart-box">
+    <h6>指導時間外：月別（実績＋残時間）</h6>
+    <div style="height:180px"><canvas id="sd-chart-overtime"></canvas></div>
+    ${sdNumTable(overtime, cumMonths, v => (v/10000).toFixed(0)+'万')}
+  </div>` : '';
+  const salesBox = sales ? `<div class="sd-chart-box">
+    <h6>売上：月別実績 vs 予算</h6>
+    <div style="height:220px"><canvas id="sd-chart-sales"></canvas></div>
+  </div>` : '';
+  const grossBox = gross ? `<div class="sd-chart-box">
+    <h6>粗利率：月別推移（実績 vs 見積）</h6>
+    <div style="height:220px"><canvas id="sd-chart-gross"></canvas></div>
+  </div>` : '';
 
-  document.getElementById('schoolDetailContent').innerHTML = kpiHtml + row1 + row2;
+  document.getElementById('schoolDetailContent').innerHTML =
+    kpiHtml +
+    `<div class="sd-chart-row">${salesBox}${grossBox}</div>` +
+    `<div class="sd-chart-row">${dispatchBox}${overtimeBox}</div>`;
 
-  // --- Chart.js描画 ---
+  // --- ドーナツ描画 ---
+  kpiDraws.forEach(d => sdDonut(d.id, d.a, d.b, d.color));
+
+  // --- 売上棒グラフ ---
   if (sales) {
     sdDrawChart('sd-chart-sales', SCH_MONTHS, [
       { type:'bar',  label:'実績', data:SCH_MONTHS.map(m=>sales.actual[m]||0),
         backgroundColor:'rgba(59,130,246,.4)', borderColor:'#3b82f6', borderWidth:1 },
       { type:'line', label:'予算', data:SCH_MONTHS.map(m=>sales.budget[m]||0),
         borderColor:'#f59e0b', backgroundColor:'transparent', borderWidth:2, pointRadius:3, tension:.2 },
-    ], v => (v/10000).toFixed(0) + '万');
+    ], v => (v/10000).toFixed(0)+'万');
   }
+  // --- 粗利率折れ線 ---
   if (gross) {
     sdDrawChart('sd-chart-gross', SCH_MONTHS, [
       { type:'line', label:'実績粗利率', data:SCH_MONTHS.map(m=>+(gross.actual_rate[m]||0).toFixed(1)),
         borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.1)', fill:true, borderWidth:2, pointRadius:3, tension:.2 },
       { type:'line', label:'見積粗利率', data:SCH_MONTHS.map(m=>+(gross.budget_rate[m]||0).toFixed(1)),
         borderColor:'#9ca3af', backgroundColor:'transparent', borderDash:[4,3], borderWidth:2, pointRadius:3, tension:.2 },
-    ], v => v + '%');
+    ], v => v+'%');
   }
+  // --- 派遣時間 積み上げ棒 ---
   if (dispatch) {
-    sdDrawChart('sd-chart-dispatch', SCH_MONTHS, [
-      { type:'bar',  label:'実績(h)', data:SCH_MONTHS.map(m=>dispatch.actual[m]||0),
-        backgroundColor:'rgba(14,165,233,.4)', borderColor:'#0ea5e9', borderWidth:1 },
-      { type:'line', label:'予算(h)', data:SCH_MONTHS.map(m=>dispatch.budget[m]||0),
-        borderColor:'#f59e0b', backgroundColor:'transparent', borderWidth:2, pointRadius:3, tension:.2 },
-    ], v => v + 'h');
+    sdDrawChart('sd-chart-dispatch', cumMonths, [
+      { type:'bar', label:'実績', data:cumMonths.map(m=>dispatch.actual[m]||0),
+        backgroundColor:'rgba(14,165,233,.75)', borderColor:'#0ea5e9', borderWidth:1, stack:'a' },
+      { type:'bar', label:'残時間', data:cumMonths.map(m=>Math.max(0,(dispatch.budget[m]||0)-(dispatch.actual[m]||0))),
+        backgroundColor:'rgba(14,165,233,.2)', borderColor:'#bae6fd', borderWidth:1, stack:'a' },
+    ], v=>v+'h', true);
   }
+  // --- 指導時間外 積み上げ棒 ---
   if (overtime) {
-    sdDrawChart('sd-chart-overtime', SCH_MONTHS, [
-      { type:'bar',  label:'実績', data:SCH_MONTHS.map(m=>overtime.actual[m]||0),
-        backgroundColor:'rgba(167,139,250,.5)', borderColor:'#a78bfa', borderWidth:1 },
-      { type:'line', label:'予算', data:SCH_MONTHS.map(m=>overtime.budget[m]||0),
-        borderColor:'#f59e0b', backgroundColor:'transparent', borderWidth:2, pointRadius:3, tension:.2 },
-    ], v => (v/10000).toFixed(0) + '万');
+    sdDrawChart('sd-chart-overtime', cumMonths, [
+      { type:'bar', label:'実績', data:cumMonths.map(m=>overtime.actual[m]||0),
+        backgroundColor:'rgba(167,139,250,.75)', borderColor:'#a78bfa', borderWidth:1, stack:'a' },
+      { type:'bar', label:'残時間', data:cumMonths.map(m=>Math.max(0,(overtime.budget[m]||0)-(overtime.actual[m]||0))),
+        backgroundColor:'rgba(167,139,250,.2)', borderColor:'#c4b5fd', borderWidth:1, stack:'a' },
+    ], v=>(v/10000).toFixed(0)+'万', true);
   }
 }
 
